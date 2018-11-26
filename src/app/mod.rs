@@ -2,7 +2,7 @@
 
 use http;
 
-mod classify;
+pub mod classify;
 pub mod config;
 mod control;
 mod dst;

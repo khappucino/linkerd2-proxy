@@ -7,8 +7,10 @@ use http;
 use indexmap::IndexMap;
 use regex::Regex;
 use std::iter::FromIterator;
+use std::time::Duration;
 use std::sync::Arc;
 use std::{error, fmt};
+use tower_retry::budget::Budget;
 
 use NameAddr;
 
@@ -44,6 +46,9 @@ pub enum Error {}
 pub struct Route {
     labels: Arc<IndexMap<String, String>>,
     response_classes: ResponseClasses,
+    is_retryable: bool,
+    retry_budget: Option<Arc<Budget>>,
+    retry_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +95,9 @@ impl Route {
         Self {
             labels,
             response_classes: response_classes.into(),
+            is_retryable: false,
+            retry_budget: None,
+            retry_timeout: None,
         }
     }
 
@@ -99,6 +107,30 @@ impl Route {
 
     pub fn response_classes(&self) -> &ResponseClasses {
         &self.response_classes
+    }
+
+    pub fn is_retryable(&self) -> bool {
+        self.is_retryable
+    }
+
+    pub fn retry_budget(&self) -> Option<&Arc<Budget>> {
+        self.retry_budget.as_ref()
+    }
+
+    pub fn retry_timeout(&self) -> Option<Duration> {
+        self.retry_timeout
+    }
+
+    pub fn set_is_retryable(&mut self, is: bool) {
+        self.is_retryable = is;
+    }
+
+    pub fn set_retry_budget(&mut self, budget: Arc<Budget>) {
+        self.retry_budget = Some(budget);
+    }
+
+    pub fn set_retry_timeout(&mut self, timeout: Duration) {
+        self.retry_timeout = Some(timeout);
     }
 }
 

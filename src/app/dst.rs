@@ -1,7 +1,11 @@
 use http;
 use std::fmt;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio_timer::clock;
+use tower_retry::budget::Budget;
 
-use proxy::http::{metrics::classify::CanClassify, profiles};
+use proxy::http::{metrics::classify::CanClassify, profiles, retry};
 use {Addr, NameAddr};
 
 use super::classify;
@@ -18,6 +22,13 @@ pub struct Route {
     pub route: profiles::Route,
 }
 
+#[derive(Clone, Debug)]
+pub struct Retry {
+    budget: Arc<Budget>,
+    response_classes: profiles::ResponseClasses,
+    timeout: Duration,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DstAddr {
     addr: Addr,
@@ -31,6 +42,52 @@ impl CanClassify for Route {
 
     fn classify(&self) -> classify::Request {
         self.route.response_classes().clone().into()
+    }
+}
+
+impl retry::CanRetry for Route {
+    type Retry = Retry;
+
+    fn can_retry(&self) -> Option<Self::Retry> {
+        if self.route.is_retryable() {
+            let timeout = self.route.retry_timeout()?;
+            self
+                .route
+                .retry_budget()
+                .map(|budget| Retry {
+                    budget: budget.clone(),
+                    response_classes: self.route.response_classes().clone(),
+                    timeout,
+                })
+        } else {
+            None
+        }
+    }
+}
+
+// === impl Retry ===
+
+impl retry::Retry for Retry {
+    fn retry<B>(&self, started_at: Instant, res: &http::Response<B>) -> Result<(), retry::NoRetry> {
+        if clock::now() - started_at > self.timeout {
+            return Err(retry::NoRetry::Timeout);
+        }
+
+        for class in &*self.response_classes {
+            if class.is_match(res) {
+                if class.is_failure() {
+                    // don't break through and deposit on a failure
+                    return self
+                        .budget
+                        .withdraw()
+                        .map_err(|_overdrawn| retry::NoRetry::Budget);
+                }
+                break;
+            }
+        }
+
+        self.budget.deposit();
+        Err(retry::NoRetry::Success)
     }
 }
 
