@@ -46,9 +46,7 @@ pub enum Error {}
 pub struct Route {
     labels: Arc<IndexMap<String, String>>,
     response_classes: ResponseClasses,
-    is_retryable: bool,
-    retry_budget: Option<Arc<Budget>>,
-    retry_timeout: Option<Duration>,
+    retries: Option<Retries>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +77,12 @@ pub enum ResponseMatch {
     },
 }
 
+#[derive(Clone, Debug)]
+pub struct Retries {
+    budget: Arc<Budget>,
+    timeout: Duration,
+}
+
 // === impl Route ===
 
 impl Route {
@@ -95,9 +99,7 @@ impl Route {
         Self {
             labels,
             response_classes: response_classes.into(),
-            is_retryable: false,
-            retry_budget: None,
-            retry_timeout: None,
+            retries: None,
         }
     }
 
@@ -109,28 +111,15 @@ impl Route {
         &self.response_classes
     }
 
-    pub fn is_retryable(&self) -> bool {
-        self.is_retryable
+    pub fn retries(&self) -> Option<&Retries> {
+        self.retries.as_ref()
     }
 
-    pub fn retry_budget(&self) -> Option<&Arc<Budget>> {
-        self.retry_budget.as_ref()
-    }
-
-    pub fn retry_timeout(&self) -> Option<Duration> {
-        self.retry_timeout
-    }
-
-    pub fn set_is_retryable(&mut self, is: bool) {
-        self.is_retryable = is;
-    }
-
-    pub fn set_retry_budget(&mut self, budget: Arc<Budget>) {
-        self.retry_budget = Some(budget);
-    }
-
-    pub fn set_retry_timeout(&mut self, timeout: Duration) {
-        self.retry_timeout = Some(timeout);
+    pub fn set_retries(&mut self, budget: Arc<Budget>, timeout: Duration) {
+        self.retries = Some(Retries {
+            budget,
+            timeout,
+        });
     }
 }
 
@@ -176,6 +165,18 @@ impl ResponseMatch {
             ResponseMatch::All(ref ms) => ms.iter().all(|m| m.is_match(req)),
             ResponseMatch::Any(ref ms) => ms.iter().any(|m| m.is_match(req)),
         }
+    }
+}
+
+// === impl Retries ===
+
+impl Retries {
+    pub fn budget(&self) -> &Arc<Budget> {
+        &self.budget
+    }
+
+    pub fn timeout(&self) -> Duration {
+        self.timeout
     }
 }
 

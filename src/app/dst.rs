@@ -49,19 +49,14 @@ impl retry::CanRetry for Route {
     type Retry = Retry;
 
     fn can_retry(&self) -> Option<Self::Retry> {
-        if self.route.is_retryable() {
-            let timeout = self.route.retry_timeout()?;
-            self
-                .route
-                .retry_budget()
-                .map(|budget| Retry {
-                    budget: budget.clone(),
-                    response_classes: self.route.response_classes().clone(),
-                    timeout,
-                })
-        } else {
-            None
-        }
+        self
+            .route
+            .retries()
+            .map(|retries| Retry {
+                budget: retries.budget().clone(),
+                response_classes: self.route.response_classes().clone(),
+                timeout: retries.timeout(),
+            })
     }
 }
 

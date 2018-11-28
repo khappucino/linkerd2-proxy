@@ -163,26 +163,27 @@ fn convert_route(orig: api::Route, retry_budget: Option<&Arc<Budget>>, default_r
 }
 
 fn set_route_retry(route: &mut profiles::Route, retry_timeout: Option<Result<Duration, Duration>>, retry_budget: Option<&Arc<Budget>>) {
-    match retry_timeout {
-        Some(Ok(dur)) => route.set_retry_timeout(dur),
+    let timeout = match retry_timeout {
+        Some(Ok(dur)) => dur,
         Some(Err(_)) => {
-            warn!("route retry_timeout is negative: {:?}", route);
+            warn!("retry_timeout is negative: {:?}", route);
             return;
         },
         None => {
             warn!("retry_timeout is missing: {:?}", route);
             return;
         },
-    }
+    };
 
-    if let Some(budget) = retry_budget {
-        route.set_retry_budget(budget.clone());
-    } else {
-        warn!("route claims is_retryable, but missing retry_budget: {:?}", route);
-        return;
-    }
+    let budget = match retry_budget {
+        Some(budget) => budget.clone(),
+        None => {
+            warn!("retry_budget is missing: {:?}", route);
+            return;
+        },
+    };
 
-    route.set_is_retryable(true);
+    route.set_retries(budget, timeout);
 }
 
 fn convert_req_match(orig: api::RequestMatch) -> Option<profiles::RequestMatch> {
@@ -263,7 +264,7 @@ fn convert_retry_budget(orig: api::RetryBudget) -> Option<Arc<Budget>> {
         return None;
     };
     let retry_ratio = orig.retry_ratio;
-    if retry_ratio > 1000.0 || retry_ratio <= 0.0 {
+    if retry_ratio > 1000.0 || retry_ratio < 0.0 {
         warn!("retry_budget retry_ratio invalid: {:?}", retry_ratio);
         return None;
     }
