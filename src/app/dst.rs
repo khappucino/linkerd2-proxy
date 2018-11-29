@@ -68,17 +68,24 @@ impl retry::Retry for Retry {
             return Err(retry::NoRetry::Timeout);
         }
 
-        for class in &*self.response_classes {
-            if class.is_match(res) {
-                if class.is_failure() {
-                    // don't break through and deposit on a failure
-                    return self
-                        .budget
-                        .withdraw()
-                        .map_err(|_overdrawn| retry::NoRetry::Budget);
+        // Check if a previous layer has already classified this response.
+        let mut is_failure = false;
+        if let Some(class) = res.extensions().get::<classify::Class>() {
+            is_failure = class.is_failure();
+        } else {
+            for class in &*self.response_classes {
+                if class.is_match(res) {
+                    is_failure = class.is_failure();
+                    break;
                 }
-                break;
             }
+        }
+
+        if is_failure {
+            return self
+                .budget
+                .withdraw()
+                .map_err(|_overdrawn| retry::NoRetry::Budget);
         }
 
         self.budget.deposit();

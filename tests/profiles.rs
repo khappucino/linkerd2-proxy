@@ -89,7 +89,7 @@ fn retry_if_profile_allows() {
         routes: [
             controller::route()
                 .request_any()
-                .response_failure(500..600)
+                // use default classifier
                 .retryable(true)
         ],
         budget: Some(controller::retry_budget(Duration::from_secs(10), 0.1, 1)),

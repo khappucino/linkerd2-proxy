@@ -215,7 +215,7 @@ where
     A: Payload,
     B: Payload,
     C: ClassifyResponse<Error = h2::Error> + Clone + Default + Send + Sync + 'static,
-    C::Class: Hash + Eq,
+    C::Class: Hash + Eq + Send + Sync,
 {
     type Response = http::Response<ResponseBody<B, C::ClassifyEos>>;
     type Error = S::Error;
@@ -263,15 +263,19 @@ where
     F: Future<Item = http::Response<B>>,
     B: Payload,
     C: ClassifyResponse<Error = h2::Error> + Send + Sync + 'static,
-    C::Class: Hash + Eq,
+    C::Class: Hash + Eq + Send + Sync,
 {
     type Item = http::Response<ResponseBody<B, C::ClassifyEos>>;
     type Error = F::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let rsp = try_ready!(self.inner.poll());
+        let mut rsp = try_ready!(self.inner.poll());
 
         let classify = self.classify.take().map(|c| c.start(&rsp));
+
+        if let Some(class) = classify.as_ref().and_then(|c| c.no_body()) {
+            rsp.extensions_mut().insert(class);
+        }
 
         let rsp = {
             let (head, inner) = rsp.into_parts();
