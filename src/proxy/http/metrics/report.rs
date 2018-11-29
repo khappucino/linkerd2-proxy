@@ -7,7 +7,7 @@ use tokio_timer::clock;
 
 use metrics::{latency, Counter, FmtLabels, FmtMetric, FmtMetrics, Histogram, Metric};
 
-use super::{ClassMetrics, RequestMetrics, Registry, StatusMetrics};
+use super::{ClassMetrics, RequestMetrics, Registry, RetrySkipped, StatusMetrics};
 
 /// Reports HTTP metrics for prometheus.
 #[derive(Clone, Debug)]
@@ -91,12 +91,7 @@ where
         registry.fmt_by_class(f, self.scope.response_total(), |s| &s.total)?;
 
         self.scope.retry_skipped_total().fmt_help(f)?;
-        registry.fmt_by_retry(f, self.scope.retry_skipped_total(), |s| {
-            (RetryLabel::Budget, &s.retry_skipped_budget_total)
-        })?;
-        registry.fmt_by_retry(f, self.scope.retry_skipped_total(), |s| {
-            (RetryLabel::Timeout, &s.retry_skipped_timeout_total)
-        })?;
+        registry.fmt_by_retry(f, self.scope.retry_skipped_total())?;
 
         Ok(())
     }
@@ -126,21 +121,20 @@ where
         Ok(())
     }
 
-    fn fmt_by_retry<L, M, F>(
+    fn fmt_by_retry<M>(
         &self,
         f: &mut fmt::Formatter,
         metric: Metric<M>,
-        get_metric: F,
     ) -> fmt::Result
     where
-        L: FmtLabels,
         M: FmtMetric,
-        F: Fn(&RequestMetrics<C>) -> (L, &M),
     {
         for (tgt, tm) in &self.by_target {
-            if let Ok(m) = tm.lock() {
-                let (label, m) = get_metric(&*m);
-                m.fmt_metric_labeled(f, metric.name, (tgt, label))?;
+            if let Ok(tm) = tm.lock() {
+                for (retry, m) in &tm.by_retry_skipped {
+                    let labels = (tgt, retry);
+                    m.fmt_metric_labeled(f, metric.name, labels)?;
+                }
             }
         }
 
@@ -254,16 +248,11 @@ impl FmtLabels for Status {
     }
 }
 
-enum RetryLabel {
-    Budget,
-    Timeout,
-}
-
-impl FmtLabels for RetryLabel {
+impl FmtLabels for RetrySkipped {
     fn fmt_labels(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "skipped=\"{}\"", match self {
-            RetryLabel::Budget => "budget",
-            RetryLabel::Timeout => "timeout",
+            RetrySkipped::Budget => "budget",
+            RetrySkipped::Timeout => "timeout",
         })
     }
 }

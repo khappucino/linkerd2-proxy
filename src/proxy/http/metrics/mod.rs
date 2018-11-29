@@ -49,8 +49,7 @@ where
 {
     last_update: Instant,
     total: Counter,
-    retry_skipped_budget_total: Counter,
-    retry_skipped_timeout_total: Counter,
+    by_retry_skipped: IndexMap<RetrySkipped, Counter>,
     by_status: IndexMap<http::StatusCode, StatusMetrics<C>>,
 }
 
@@ -66,6 +65,12 @@ where
 #[derive(Debug, Default)]
 pub struct ClassMetrics {
     total: Counter,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum RetrySkipped {
+    Budget,
+    Timeout,
 }
 
 impl<T, C> Default for Registry<T, C>
@@ -112,6 +117,19 @@ where
     }
 }
 
+impl<C> RequestMetrics<C>
+where
+    C: Hash + Eq,
+{
+    fn incr_retry_skipped(&mut self, reason: RetrySkipped) {
+        self
+            .by_retry_skipped
+            .entry(reason)
+            .or_insert_with(Counter::default)
+            .incr();
+    }
+}
+
 impl<C> Default for RequestMetrics<C>
 where
     C: Hash + Eq,
@@ -120,8 +138,7 @@ where
         Self {
             last_update: clock::now(),
             total: Counter::default(),
-            retry_skipped_budget_total: Counter::default(),
-            retry_skipped_timeout_total: Counter::default(),
+            by_retry_skipped: IndexMap::default(),
             by_status: IndexMap::default(),
         }
     }
@@ -134,14 +151,14 @@ where
     fn incr_retry_skipped_budget(&self) {
         if let Ok(mut metrics) = self.lock() {
             metrics.last_update = clock::now();
-            metrics.retry_skipped_budget_total.incr();
+            metrics.incr_retry_skipped(RetrySkipped::Budget);
         }
     }
 
     fn incr_retry_skipped_timeout(&self) {
         if let Ok(mut metrics) = self.lock() {
             metrics.last_update = clock::now();
-            metrics.retry_skipped_timeout_total.incr();
+            metrics.incr_retry_skipped(RetrySkipped::Timeout);
         }
     }
 }
